@@ -4,7 +4,33 @@
 
 ## v0.108.0: API changes
 
-## v0.107.55: API changes
+## v0.107.56: API changes
+
+### Deprecated client APIs
+
+* The `GET /control/clients/find` HTTP API; use the new `POST
+  /control/clients/search` API instead.
+
+### New client APIs
+
+* The new `POST /control/clients/search` HTTP API allows config updates.
+
+These APIs accept and return a JSON object with the following format:
+
+```json
+{
+  "clients": [
+    {
+      "id": "192.0.2.1"
+    },
+    {
+      "id": "test"
+    }
+  ]
+}
+```
+
+## v0.107.53: API changes
 
 ### The new field `"ecosia"` in `SafeSearchConfig`
 

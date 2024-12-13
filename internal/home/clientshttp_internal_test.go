@@ -408,3 +408,77 @@ func TestClientsContainer_HandleFindClient(t *testing.T) {
 		})
 	}
 }
+
+func TestClientsContainer_HandleSearchClient(t *testing.T) {
+	clients := newClientsContainer(t)
+	clients.clientChecker = &testBlockedClientChecker{
+		onIsBlockedClient: func(ip netip.Addr, clientID string) (ok bool, rule string) {
+			return false, ""
+		},
+	}
+
+	ctx := testutil.ContextWithTimeout(t, testTimeout)
+
+	clientOne := newPersistentClientWithIDs(t, "client1", []string{testClientIP1})
+	err := clients.storage.Add(ctx, clientOne)
+	require.NoError(t, err)
+
+	clientTwo := newPersistentClientWithIDs(t, "client2", []string{testClientIP2})
+	err = clients.storage.Add(ctx, clientTwo)
+	require.NoError(t, err)
+
+	assertPersistentClients(t, clients, []*client.Persistent{clientOne, clientTwo})
+
+	testCases := []struct {
+		name       string
+		query      *searchQueryJSON
+		wantCode   int
+		wantClient []*client.Persistent
+	}{{
+		name: "single",
+		query: &searchQueryJSON{
+			Clients: []searchClientJSON{{
+				ID: testClientIP1,
+			}},
+		},
+		wantCode:   http.StatusOK,
+		wantClient: []*client.Persistent{clientOne},
+	}, {
+		name: "multiple",
+		query: &searchQueryJSON{
+			Clients: []searchClientJSON{{
+				ID: testClientIP1,
+			}, {
+				ID: testClientIP2,
+			}},
+		},
+		wantCode:   http.StatusOK,
+		wantClient: []*client.Persistent{clientOne, clientTwo},
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var body []byte
+			body, err = json.Marshal(tc.query)
+			require.NoError(t, err)
+
+			var r *http.Request
+			r, err = http.NewRequest(http.MethodPost, "", bytes.NewReader(body))
+			require.NoError(t, err)
+
+			rw := httptest.NewRecorder()
+			clients.handleSearchClient(rw, r)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantCode, rw.Code)
+
+			body, err = io.ReadAll(rw.Body)
+			require.NoError(t, err)
+
+			clientData := []map[string]*clientJSON{}
+			err = json.Unmarshal(body, &clientData)
+			require.NoError(t, err)
+
+			assertPersistentClientsData(t, clients, clientData, tc.wantClient)
+		})
+	}
+}
