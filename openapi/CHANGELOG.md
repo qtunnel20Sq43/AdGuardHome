@@ -13,9 +13,8 @@
 
 ### New client APIs
 
-* The new `POST /control/clients/search` HTTP API allows config updates.
-
-These APIs accept and return a JSON object with the following format:
+* The new `POST /control/clients/search` HTTP API allows config updates.  It
+  accepts a JSON object with the following format:
 
 ```json
 {

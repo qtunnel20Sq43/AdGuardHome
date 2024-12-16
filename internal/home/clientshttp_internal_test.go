@@ -16,6 +16,7 @@ import (
 	"github.com/AdguardTeam/AdGuardHome/internal/client"
 	"github.com/AdguardTeam/AdGuardHome/internal/filtering"
 	"github.com/AdguardTeam/AdGuardHome/internal/schedule"
+	"github.com/AdguardTeam/AdGuardHome/internal/whois"
 	"github.com/AdguardTeam/golibs/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -410,10 +411,28 @@ func TestClientsContainer_HandleFindClient(t *testing.T) {
 }
 
 func TestClientsContainer_HandleSearchClient(t *testing.T) {
+	var (
+		runtimeCli = "runtime_client1"
+
+		runtimeCliIP     = "3.3.3.3"
+		blockedCliIP     = "4.4.4.4"
+		nonExistentCliIP = "5.5.5.5"
+
+		allowed     = false
+		dissallowed = true
+
+		emptyRule      = ""
+		disallowedRule = "disallowed_rule"
+	)
+
 	clients := newClientsContainer(t)
 	clients.clientChecker = &testBlockedClientChecker{
-		onIsBlockedClient: func(ip netip.Addr, clientID string) (ok bool, rule string) {
-			return false, ""
+		onIsBlockedClient: func(ip netip.Addr, _ string) (ok bool, rule string) {
+			if ip == netip.MustParseAddr(blockedCliIP) {
+				return true, disallowedRule
+			}
+
+			return false, emptyRule
 		},
 	}
 
@@ -429,11 +448,13 @@ func TestClientsContainer_HandleSearchClient(t *testing.T) {
 
 	assertPersistentClients(t, clients, []*client.Persistent{clientOne, clientTwo})
 
+	clients.UpdateAddress(ctx, netip.MustParseAddr(runtimeCliIP), runtimeCli, nil)
+
 	testCases := []struct {
-		name       string
-		query      *searchQueryJSON
-		wantCode   int
-		wantClient []*client.Persistent
+		name           string
+		query          *searchQueryJSON
+		wantPersistent []*client.Persistent
+		wantRuntime    *clientJSON
 	}{{
 		name: "single",
 		query: &searchQueryJSON{
@@ -441,8 +462,7 @@ func TestClientsContainer_HandleSearchClient(t *testing.T) {
 				ID: testClientIP1,
 			}},
 		},
-		wantCode:   http.StatusOK,
-		wantClient: []*client.Persistent{clientOne},
+		wantPersistent: []*client.Persistent{clientOne},
 	}, {
 		name: "multiple",
 		query: &searchQueryJSON{
@@ -452,8 +472,47 @@ func TestClientsContainer_HandleSearchClient(t *testing.T) {
 				ID: testClientIP2,
 			}},
 		},
-		wantCode:   http.StatusOK,
-		wantClient: []*client.Persistent{clientOne, clientTwo},
+		wantPersistent: []*client.Persistent{clientOne, clientTwo},
+	}, {
+		name: "runtime",
+		query: &searchQueryJSON{
+			Clients: []searchClientJSON{{
+				ID: runtimeCliIP,
+			}},
+		},
+		wantRuntime: &clientJSON{
+			Name:           runtimeCli,
+			IDs:            []string{runtimeCliIP},
+			Disallowed:     &allowed,
+			DisallowedRule: &emptyRule,
+			WHOIS:          &whois.Info{},
+		},
+	}, {
+		name: "blocked_access",
+		query: &searchQueryJSON{
+			Clients: []searchClientJSON{{
+				ID: blockedCliIP,
+			}},
+		},
+		wantRuntime: &clientJSON{
+			IDs:            []string{blockedCliIP},
+			Disallowed:     &dissallowed,
+			DisallowedRule: &disallowedRule,
+			WHOIS:          &whois.Info{},
+		},
+	}, {
+		name: "non_existing_client",
+		query: &searchQueryJSON{
+			Clients: []searchClientJSON{{
+				ID: nonExistentCliIP,
+			}},
+		},
+		wantRuntime: &clientJSON{
+			IDs:            []string{nonExistentCliIP},
+			Disallowed:     &allowed,
+			DisallowedRule: &emptyRule,
+			WHOIS:          &whois.Info{},
+		},
 	}}
 
 	for _, tc := range testCases {
@@ -469,7 +528,7 @@ func TestClientsContainer_HandleSearchClient(t *testing.T) {
 			rw := httptest.NewRecorder()
 			clients.handleSearchClient(rw, r)
 			require.NoError(t, err)
-			require.Equal(t, tc.wantCode, rw.Code)
+			require.Equal(t, http.StatusOK, rw.Code)
 
 			body, err = io.ReadAll(rw.Body)
 			require.NoError(t, err)
@@ -478,7 +537,17 @@ func TestClientsContainer_HandleSearchClient(t *testing.T) {
 			err = json.Unmarshal(body, &clientData)
 			require.NoError(t, err)
 
-			assertPersistentClientsData(t, clients, clientData, tc.wantClient)
+			if tc.wantPersistent != nil {
+				assertPersistentClientsData(t, clients, clientData, tc.wantPersistent)
+
+				return
+			}
+
+			require.Len(t, clientData, 1)
+			require.Len(t, clientData[0], 1)
+
+			rc := clientData[0][tc.wantRuntime.IDs[0]]
+			assert.Equal(t, tc.wantRuntime, rc)
 		})
 	}
 }

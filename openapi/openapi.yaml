@@ -2779,8 +2779,8 @@
         'clients':
           'type': 'array'
           'items':
-            '$ref': '#/components/schemas/ClientsIDEntry'
-    'ClientsIDEntry':
+            '$ref': '#/components/schemas/ClientsSearchRequestItem'
+    'ClientsSearchRequestItem':
       'type': 'object'
       'properties':
         'id':

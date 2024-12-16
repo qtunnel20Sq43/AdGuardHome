@@ -435,23 +435,28 @@ func (clients *clientsContainer) handleFindClient(w http.ResponseWriter, r *http
 			break
 		}
 
-		ip, _ := netip.ParseAddr(idStr)
-		c, ok := clients.storage.Find(idStr)
-		var cj *clientJSON
-		if !ok {
-			cj = clients.findRuntime(ip, idStr)
-		} else {
-			cj = clientToJSON(c)
-			disallowed, rule := clients.clientChecker.IsBlockedClient(ip, idStr)
-			cj.Disallowed, cj.DisallowedRule = &disallowed, &rule
-		}
-
 		data = append(data, map[string]*clientJSON{
-			idStr: cj,
+			idStr: clients.findClient(idStr),
 		})
 	}
 
 	aghhttp.WriteJSONResponseOK(w, r, data)
+}
+
+// findClient returns available information about a client by idStr from the
+// client's storage or access settings.  cj is guaranteed to be non-nil.
+func (clients *clientsContainer) findClient(idStr string) (cj *clientJSON) {
+	ip, _ := netip.ParseAddr(idStr)
+	c, ok := clients.storage.Find(idStr)
+	if !ok {
+		return clients.findRuntime(ip, idStr)
+	}
+
+	cj = clientToJSON(c)
+	disallowed, rule := clients.clientChecker.IsBlockedClient(ip, idStr)
+	cj.Disallowed, cj.DisallowedRule = &disallowed, &rule
+
+	return cj
 }
 
 // searchQueryJSON is a request to the POST /control/clients/search HTTP API.
@@ -480,19 +485,12 @@ func (clients *clientsContainer) handleSearchClient(w http.ResponseWriter, r *ht
 	data := []map[string]*clientJSON{}
 	for _, c := range q.Clients {
 		idStr := c.ID
-		ip, _ := netip.ParseAddr(idStr)
-		c, ok := clients.storage.Find(idStr)
-		var cj *clientJSON
-		if !ok {
-			cj = clients.findRuntime(ip, idStr)
-		} else {
-			cj = clientToJSON(c)
-			disallowed, rule := clients.clientChecker.IsBlockedClient(ip, idStr)
-			cj.Disallowed, cj.DisallowedRule = &disallowed, &rule
+		if idStr == "" {
+			break
 		}
 
 		data = append(data, map[string]*clientJSON{
-			idStr: cj,
+			idStr: clients.findClient(idStr),
 		})
 	}
 
