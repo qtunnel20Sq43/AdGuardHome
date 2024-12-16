@@ -485,10 +485,6 @@ func (clients *clientsContainer) handleSearchClient(w http.ResponseWriter, r *ht
 	data := []map[string]*clientJSON{}
 	for _, c := range q.Clients {
 		idStr := c.ID
-		if idStr == "" {
-			break
-		}
-
 		data = append(data, map[string]*clientJSON{
 			idStr: clients.findClient(idStr),
 		})
